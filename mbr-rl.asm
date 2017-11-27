@@ -17,10 +17,18 @@ bits 16 ; 16 bit real mode
 	mov dh, %2 ; X coord
 	mov dl, %3 ; Y coord
 	int 0x10
-	mov ah, 0x09 ; Write to cursor
+	mov ah, 0x0a ; Write to cursor
 	mov al, %1 ; Character to write
-	mov bl, 0xf0 ;  White on Black
+	mov cx, 1 ; Write the character once
 	int 0x10
+	; Maybe writing directly to 0xb800 will be faster
+	; In a setup routine, set es to 0xb800
+	; and then write to es:ax
+	; OR EVEN
+	; =>
+	; %macro set_char 3
+	; 	mov [0x0:0xb800 + %2 * 80 + %3], %1
+	; %endmacro
 	popa
 %endmacro
 
