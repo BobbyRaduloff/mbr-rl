@@ -29,11 +29,22 @@ bits 16 ; 16 bit real mode
 	call _read_char
 %endmacro
 
+P_START_X: equ 38
+P_START_Y: equ 12
+P_START_HEALTH: equ 10
+E_START_HEALTH: equ 1
+
 start:
 initiliaze_variables:
-; Player initialy positioned in the middle
-mov byte [px], 38
-mov byte [py], 12
+	; Player initialy positioned in the middle with max health
+	mov byte [px], P_START_X
+	mov byte [py], P_START_Y
+	mov byte [phealth], P_START_HEALTH
+	mov cx, 9 ; 9 Enemies
+_enemy_counter:
+	mov byte [ehealth + cx], E_START_HEALTH ; Set health for all enemiess
+	; Set enemies at random
+	loop _enemy_counter
 initialize_video:
 	; Set up mode 0x03
 	mov ax, 0x0003 ; ah = 0x0 -> set video mode
@@ -121,10 +132,14 @@ _read_char:
 	ret
 
 ; Game State Data
-px: equ 8000 ; half of the width
-py: equ 8001 ; half of the height
+px: equ 0x8000 ; player x-coord
+py: equ 0x8001 ; player y-coord
+phealth: equ 0x8000 ; player health
+ex: equ 0x8003 ; 10 Enemies x-coords
+ey: equ 0x8013 ; 10 Enemies y-coords
+ehealth: equ 0x8023 ; 10 Enemies health
 
-; Dummy partition entry (https://github.com/daniel-e/tetros/blob/master/tetros.asm)
+; Dummy partition table (https://github.com/daniel-e/tetros/blob/master/tetros.asm)
 times 446-($-$$) db 0
 	db 0x80                   ; bootable
     db 0x00, 0x01, 0x00       ; start CHS address
