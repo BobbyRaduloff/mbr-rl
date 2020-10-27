@@ -13,23 +13,113 @@ bits 16 ; 16 bit real mode
     mov es, ax
     mov di, 0
 
-;; MACROS
-%macro set_char 3
-    pusha
-    mov di, 0
-    mov cl, byte [%2]
-    .set_y:
-    add di, 160
-    loop .set_y
+;; Initialization
+initialize_variables:
+    mov [player_hp], byte 2
+    mov [player_x], byte 39
+    mov [player_y], byte 11
+    call random_hp_pickup
+
+;; GAME LOOP
+GAME_LOOP:
+pusha
+
+;; Drawing code
+; Draw the top and bottom lines
+draw_horizontal_lines:
+    mov ax, 0x0fdb
+    mov cx, 80
+    .draw_top_line_loop:
+        stosw
+    loop .draw_top_line_loop
+    mov di, 3680
+    mov cx, 80
+    .draw_bottom_line_loop:
+        stosw
+    loop .draw_bottom_line_loop
+
+; Draw the left and right lines
+draw_vertical_lines:
+    mov ax, 0x0fdb
+    mov cx, 23
+    mov di, 160
+    .draw_left_line_loop:
+        stosw
+        add di, 158
+    loop .draw_left_line_loop
+    mov cx, 23
+    mov di, 158
+    .draw_right_line_loop:
+        stosw
+        add di, 158
+    loop .draw_right_line_loop
+
+; Draw the dots
+draw_dots:
+    mov bx, 22
+    mov ax, 0x0ffa
+    mov di, 162
+    .draw_next_line:
+        mov cx, 78
+        .draw_dotted_line:
+        stosw
+        loop .draw_dotted_line
+        add di, 4
+    cmp di, 3680
+    jle .draw_next_line
+
+; Draw the health UI
+draw_health:
+    mov cx, 3
+    mov di, 3840
     xor ax, ax
-    mov al, byte [%1]
-    add di, ax
-    add di, ax
-    mov ax, %3
-    stosw
+    mov ds, ax
+    lea si, health_text
+    .draw_health_loop:
+        lodsw
+        stosw
+    loop .draw_health_loop
+    mov al, [player_hp]
+    add al, 0x30
+    stosb
+    mov al, 0x04
+    stosb
+
+; Draw the player
+draw_player:
+    mov ax, [player_x]
+    mov bx, [player_y]
+    mov cx, 0x0201
+    call set_char
+
+draw_hp_pickup:
+    mov ax, [hp_x]
+    mov bx, [hp_y]
+    mov cx, 0x0403
+    call set_char
+
+;; END OF GAME LOOP
+    hlt
     popa
-%endmacro
-%macro random_hp_pickup 0
+    jmp GAME_LOOP
+
+;; Functions and macros
+calculate_location_offset: ; (x = ax, y = bx -> di = memory location)
+    mov di, ax
+    add di, ax
+    mov ax, bx
+    mov bx, 0x00a0
+    mul bl
+    add di, ax
+    ret
+
+set_char: ; (char = cx)
+    call calculate_location_offset
+    mov ax, cx
+    stosw
+    ret
+
+random_hp_pickup:
     pusha
     rdtsc
     xor dx, dx
@@ -46,160 +136,8 @@ bits 16 ; 16 bit real mode
     add ax, 2
     mov [hp_x], al
     popa
-%endmacro
+    ret
 
-;; Initialization
-initialize_variables:
-    mov [player_hp], byte 1
-    mov [player_x], byte 39
-    mov [player_y], byte 11
-    random_hp_pickup
-
-;; GAME LOOP
-GAME_LOOP:
-;; Draw the game world
-; Draw the top and bottom lines
-pusha
-draw_horizontal_lines:
-    mov bx, 1
-    mov cx, 80
-    mov ax, 0x0fdb
-    .draw_horizontal_lines_loop:
-    stosw
-    loop .draw_horizontal_lines_loop
-    or bx, bx
-    jz .draw_horizontal_lines_exit
-    dec bx
-    mov di, 3680
-    mov cx, 80
-    jmp .draw_horizontal_lines_loop
-    .draw_horizontal_lines_exit:
-; Draw the left and right lines
-draw_vertical_lines:
-    mov bx, 1
-    mov cx, 23
-    mov ax, 0x0fdb
-    mov di, 160
-    .draw_vertical_lines_loop:
-    stosw
-    add di, 158
-    loop .draw_vertical_lines_loop
-    or bx, bx
-    jz .draw_vertical_lines_exit
-    dec bx
-    mov di, 158
-    mov cx, 23
-    jmp .draw_vertical_lines_loop
-    .draw_vertical_lines_exit:
-; Draw the dots
-draw_dots:
-    mov bx, 22
-    mov ax, 0x0ffa
-    mov di, 162
-    .draw_next_line:
-    mov cx, 78
-    .draw_dotted_line:
-    stosw
-    loop .draw_dotted_line
-    add di, 4
-    cmp di, 3680
-    jle .draw_next_line
-; Draw the health UI
-draw_health:
-    mov cx, 3
-    mov di, 3840
-    xor ax, ax
-    mov ds, ax
-    lea si, health_text
-    .draw_health_loop:
-    lodsw
-    stosw
-    loop .draw_health_loop
-    mov al, [player_hp]
-    add al, 0x30
-    stosb
-    mov al, 0x04
-    stosb
-; Draw the player
-draw_player:
-    set_char player_x, player_y, 0x0201
-draw_hp_pickup:
-    set_char hp_x, hp_y, 0x0403
-
-;; Movement code
-read_input:
-    xor dx, dx
-    xor cx, cx
-    mov ah, 0
-    int 16h
-    mov bx, [player_y]
-    mov dx, [player_x]
-    cmp al, 119 ; w
-    je .w
-    cmp al, 97 ; a
-    je .a
-    cmp al, 115 ; s
-    je .s
-    cmp al, 100 ; d
-    je .d
-    jmp read_input
-    .w:
-    mov ax, 0xb800
-    add ax, [player_x]
-    add ax, [player_x]
-    mov cx, 160
-    .w_loop:
-    add ax, [player_y]
-    dec ax
-    loop .w_loop
-    dec bx
-    jmp .handle_input
-    .a:
-    mov ax, 0xb800
-    add ax, [player_x]
-    add ax, [player_x]
-    sub ax, 2
-    mov cx, 160
-    .a_loop:
-    add ax, [player_y]
-    loop .a_loop
-    dec dx
-    jmp .handle_input
-    .s:
-    mov ax, 0xb800
-    add ax, [player_x]
-    add ax, [player_x]
-    mov cx, 160
-    .s_loop:
-    add ax, [player_y]
-    inc ax
-    loop .s_loop
-    inc bx
-    jmp .handle_input
-    .d:
-    mov ax, 0xb800
-    add ax, [player_x]
-    add ax, [player_x]
-    add ax, 2
-    mov cx, 160
-    .d_loop:
-    add ax, [player_y]
-    loop .d_loop
-    inc dx
-    jmp .handle_input
-    .handle_input:
-    cmp ax, 0x0fdb
-    je read_input
-    cmp ax, 0x0403
-    jne .skip_heart
-    inc byte [player_hp]
-    random_hp_pickup
-    .skip_heart:
-    mov [player_x], dx
-    mov [player_y], bx
-
-    popa
-    jmp GAME_LOOP
 ;; Variables
 player_x: resb 1
 player_y: resb 1
