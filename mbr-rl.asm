@@ -1,145 +1,216 @@
-; BIOS Preperation
+;; BIOS Preperation
 org 0x7c00 ; BIOS loads here
 bits 16 ; 16 bit real mode
 
-; Write char al (%1) with bl (%4) as foreground color at (dl (%2), dh (%3))
-; Colors (http://www.shikadi.net/moddingwiki/B800_Text):
-; 	0x1 - blue
-;	0x2 - green
-;	0x3 - cyan
-; 	0x4 - red
-;	0x5 - magenta
-; 	0x6 - brown
-;	0xe - yellow
-;	0xf - white
-%macro set_char 4
-	pusha
-	mov al, %1
-	mov bl, %4
-	mov dl, %2
-	mov dh, %3
-	call _set_char
-	popa
+
+;; Set VideoMode to 80x25
+    mov ax, 0x002
+    int 0x10
+
+;; Set up drawing prerequisites
+    cld ; stosw now incerements stream registers
+    mov ax, 0xb800
+    mov es, ax
+    mov di, 0
+
+;; MACROS
+%macro set_char 3
+    pusha
+    mov di, 0
+    mov cl, byte [%2]
+    .set_y:
+    add di, 160
+    loop .set_y
+    xor ax, ax
+    mov al, byte [%1]
+    add di, ax
+    add di, ax
+    mov ax, %3
+    stosw
+    popa
+%endmacro
+%macro random_hp_pickup 0
+    pusha
+    rdtsc
+    xor dx, dx
+    mov cx, 22
+    div cx
+    mov ax, dx
+    add ax, 2
+    mov [hp_y], al
+    rdtsc
+    xor dx, dx
+    mov cx, 77
+    div cx
+    mov ax, dx
+    add ax, 2
+    mov [hp_x], al
+    popa
 %endmacro
 
-; Reads character (dl, dh) into AL
-%macro read_char 2
-	mov dl, %1
-	mov dh, %2
-	call _read_char
-%endmacro
+;; Initialization
+initialize_variables:
+    mov [player_hp], byte 1
+    mov [player_x], byte 39
+    mov [player_y], byte 11
+    random_hp_pickup
 
-P_START_X: equ 38
-P_START_Y: equ 12
-P_START_HEALTH: equ 10
-E_START_HEALTH: equ 1
+;; GAME LOOP
+GAME_LOOP:
+;; Draw the game world
+; Draw the top and bottom lines
+pusha
+draw_horizontal_lines:
+    mov bx, 1
+    mov cx, 80
+    mov ax, 0x0fdb
+    .draw_horizontal_lines_loop:
+    stosw
+    loop .draw_horizontal_lines_loop
+    or bx, bx
+    jz .draw_horizontal_lines_exit
+    dec bx
+    mov di, 3680
+    mov cx, 80
+    jmp .draw_horizontal_lines_loop
+    .draw_horizontal_lines_exit:
+; Draw the left and right lines
+draw_vertical_lines:
+    mov bx, 1
+    mov cx, 23
+    mov ax, 0x0fdb
+    mov di, 160
+    .draw_vertical_lines_loop:
+    stosw
+    add di, 158
+    loop .draw_vertical_lines_loop
+    or bx, bx
+    jz .draw_vertical_lines_exit
+    dec bx
+    mov di, 158
+    mov cx, 23
+    jmp .draw_vertical_lines_loop
+    .draw_vertical_lines_exit:
+; Draw the dots
+draw_dots:
+    mov bx, 22
+    mov ax, 0x0ffa
+    mov di, 162
+    .draw_next_line:
+    mov cx, 78
+    .draw_dotted_line:
+    stosw
+    loop .draw_dotted_line
+    add di, 4
+    cmp di, 3680
+    jle .draw_next_line
+; Draw the health UI
+draw_health:
+    mov cx, 3
+    mov di, 3840
+    xor ax, ax
+    mov ds, ax
+    lea si, health_text
+    .draw_health_loop:
+    lodsw
+    stosw
+    loop .draw_health_loop
+    mov al, [player_hp]
+    add al, 0x30
+    stosb
+    mov al, 0x04
+    stosb
+; Draw the player
+draw_player:
+    set_char player_x, player_y, 0x0201
+draw_hp_pickup:
+    set_char hp_x, hp_y, 0x0403
 
-start:
-initiliaze_variables:
-	; Player initialy positioned in the middle with max health
-	mov byte [px], P_START_X
-	mov byte [py], P_START_Y
-	mov byte [phealth], P_START_HEALTH
-	mov cx, 9 ; 9 Enemies
-_enemy_counter:
-	mov byte [ehealth + cx], E_START_HEALTH ; Set health for all enemiess
-	; Set enemies at random
-	loop _enemy_counter
-initialize_video:
-	; Set up mode 0x03
-	mov ax, 0x0003 ; ah = 0x0 -> set video mode
-	int 0x10 ; al = 0x3 -> 80x25 16 colors
-	; Setting up FS to point to the display buffer so that we can write to it.
-	mov ax, 0xb800 ; Set AX to point to buffer
-	mov fs, ax ; Set FS to point to buffer
+;; Movement code
+read_input:
+    xor dx, dx
+    xor cx, cx
+    mov ah, 0
+    int 16h
+    mov bx, [player_y]
+    mov dx, [player_x]
+    cmp al, 119 ; w
+    je .w
+    cmp al, 97 ; a
+    je .a
+    cmp al, 115 ; s
+    je .s
+    cmp al, 100 ; d
+    je .d
+    jmp read_input
+    .w:
+    mov ax, 0xb800
+    add ax, [player_x]
+    add ax, [player_x]
+    mov cx, 160
+    .w_loop:
+    add ax, [player_y]
+    dec ax
+    loop .w_loop
+    dec bx
+    jmp .handle_input
+    .a:
+    mov ax, 0xb800
+    add ax, [player_x]
+    add ax, [player_x]
+    sub ax, 2
+    mov cx, 160
+    .a_loop:
+    add ax, [player_y]
+    loop .a_loop
+    dec dx
+    jmp .handle_input
+    .s:
+    mov ax, 0xb800
+    add ax, [player_x]
+    add ax, [player_x]
+    mov cx, 160
+    .s_loop:
+    add ax, [player_y]
+    inc ax
+    loop .s_loop
+    inc bx
+    jmp .handle_input
+    .d:
+    mov ax, 0xb800
+    add ax, [player_x]
+    add ax, [player_x]
+    add ax, 2
+    mov cx, 160
+    .d_loop:
+    add ax, [player_y]
+    loop .d_loop
+    inc dx
+    jmp .handle_input
+    .handle_input:
+    cmp ax, 0x0fdb
+    je read_input
+    cmp ax, 0x0403
+    jne .skip_heart
+    inc byte [player_hp]
+    random_hp_pickup
+    .skip_heart:
+    mov [player_x], dx
+    mov [player_y], bx
 
-game_loop:
-	; The actual game loop
-draw_background:
-	; Fills the entire screen with '#' in a single interrupt, the '#' will act as map border
-	; It will be overwriten by the repeated _draw_line; done to save code space
-	mov ax, 0x0923 ; ah = 0x0a -> write char; al = 0x23 = '#'
-	mov bl, 0xf; White background
-	mov cx, 2000 ; 2000 = 80 * 25 = entire screen
-	int 0x10
-	; Draw the beloved dotted RL background
-	mov dh, 1 ; Set to 0-th row so that when incremented, it leaves a gap up
-	mov dl, 3 ; Set to 2-nd column so that it leaves a gap to the left
-_draw_line:
-	inc dh ; increment to next row
-	mov ah, 0x02 ; Move cursor to (dl, dh)
-	int 0x10
-	mov ax, 0x0a2e ; ah = 0x0a -> write char; al = 0x2e = '.'
-	mov cx, 74 ; Write it 74 times so it leaves a gap to the right
-	int 0x10
-	cmp dh, 22 ; If we are on the second to last (small gap) line, stop drawing more lines
-	jl _draw_line
+    popa
+    jmp GAME_LOOP
+;; Variables
+player_x: resb 1
+player_y: resb 1
+hp_x: resb 1
+hp_y: resb 1
+player_hp: resb 1
 
-	set_char 1, [px], [py], 0x2 ; draw the player
-check_keys:
-	xor ax, ax ; zero ax for keyboard return
-	int 0x16
-	cmp ah, 0x11 ; 0x11 = scancode(w)
-	je _w
-	cmp ah, 0x1f ; 0x1f = scancode(s)
-	je _s
-	cmp ah, 0x1e ; 0x1e = scancode(a)
-	je _a
-	cmp ah, 0x20 ; 0x20 = scancode(d)
-	je _d
-	jmp ai
+;; Constants
+health_text db 'H', 0x04, 'P', 0x04, ':', 0x04
 
-_w:
-	cmp byte [py], 2
-	jle ai
-	dec byte [py]
-	jmp ai
-_s:
-	cmp byte [py], 22	
-	jge ai
-	inc byte [py]
-	jmp ai
-_a:
-	cmp byte [px], 3
-	jle ai
-	dec byte [px]
-	jmp ai
-_d:
-	cmp byte [px], 76
-	jge ai
-	inc byte [px]
-	jmp ai
-
-ai:
-	jmp game_loop
-
-halt:
-	hlt
-
-_set_char:
-	mov ah, 0x02 ; move cursor to (dl, dh)
-	int 0x10
-	mov ah, 0x09 ; write char and attribute
-	mov cx, 0x1 ; only once
-	int 0x10
-	ret
-
-_read_char:
-	mov ah, 0x02 ; move cursor to (dl, dh)
-	int 0x10
-	mov ah, 0x08 ; Read character into AL
-	int 0x10
-	ret
-
-; Game State Data
-px: equ 0x8000 ; player x-coord
-py: equ 0x8001 ; player y-coord
-phealth: equ 0x8000 ; player health
-ex: equ 0x8003 ; 10 Enemies x-coords
-ey: equ 0x8013 ; 10 Enemies y-coords
-ehealth: equ 0x8023 ; 10 Enemies health
-
-; Dummy partition table (https://github.com/daniel-e/tetros/blob/master/tetros.asm)
+;; Dummy partition table (https://github.com/daniel-e/tetros/blob/master/tetros.asm)
 times 446-($-$$) db 0
 	db 0x80                   ; bootable
     db 0x00, 0x01, 0x00       ; start CHS address
@@ -148,6 +219,6 @@ times 446-($-$$) db 0
     db 0x00, 0x00, 0x00, 0x00 ; LBA
     db 0x02, 0x00, 0x00, 0x00 ; number of sectors
 
-; Write MBR Signature
+;; Write MBR Signature
 times 510-($-$$) db 0 ; Fill rest with 0
 dw 0xaa55 ; MBR Signature
